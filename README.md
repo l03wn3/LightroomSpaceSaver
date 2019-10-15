@@ -1,5 +1,5 @@
 # LightroomSpaceSaver
-## Lightroom Plug-in: Remove unneccessary RAW files and keeping correspong JPG
+## Lightroom Plug-in: Remove unneccessary RAW files and keeping corresponding JPG
 
 This is a plugin for people who shoot RAW+JPG in their cameras.
 After having decided which RAW file to move forward to, and giving them a high (4+) rating
