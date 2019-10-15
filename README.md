@@ -10,3 +10,13 @@ The RAW files with a high grade will be kept as is.
 
 NOTE: This will not generate JPG files from lower marked RAW files, only add an already existing
 JPG file if that exists!
+
+### Installation
+1. Download the folder spacesaver.lrdevplugin and all files contained within.
+2. Open Lightroom and Launch the Plug-in Manager.
+3. Click Add and select the spacesaver.lrdevplugin folder.
+4. Close the Plug-in Manager.
+
+### Using the plug-in
+1. Navigate to the Folder or Collection you would like to process
+2. Start the plug-in: **Library | Plug-in Extras | Spacesaver**.
