@@ -34,7 +34,7 @@ end
 
 OutputMessage = ''
 DebugMessage = ''
-DebugMode = true
+DebugMode = false
 local function addDebugMessage ( message )
 	DebugMessage = DebugMessage .. message .. ', '
 end
