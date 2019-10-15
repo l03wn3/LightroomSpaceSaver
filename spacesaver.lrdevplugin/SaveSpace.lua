@@ -106,6 +106,15 @@ local function shouldSaveSpace(photo)
 		return false
 	end
 
+	--if already rejected, we should skip
+	local pickStatus = photo:getRawMetadata('pickStatus')
+	if (pickStatus == -1 or pickStatus == 1) then
+		--if photo is picked, we want to keep the raw file as is
+		--if photo is rejected, we don't want to add the jpeg getJpegSidecar
+		addDebugMessage('Skipping file with pickStatus: ' .. tostring(pickStatus) .. ': ' .. getPhotoName(photo))
+		return false
+	end
+
 	addDebugMessage('will save space with photo: ' .. getPhotoName(photo))
 	return true
 end
