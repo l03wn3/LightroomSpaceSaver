@@ -21,6 +21,7 @@ local LrDialogs = import 'LrDialogs'
 local LrLogger = import 'LrLogger'
 local LrApplication = import 'LrApplication'
 local LrFileUtils = import 'LrFileUtils'
+local FileUtils = require 'FileUtils'
 
 -- Create the logger and enable the print function.
 local myLogger = LrLogger( 'exportLogger' )
@@ -121,9 +122,10 @@ end
 
 local function getJpegSidecar(photo)
 	local oldPath = photo:getRawMetadata( 'path' )
+	local fileEnding = "." .. FileUtils.getFileEnding(oldPath)
 
 	for i, ending in ipairs({'.JPG', '.jpg', '.jpeg', '.JPEG'}) do
-		local newFileName = oldPath:gsub(".RAF", ending)
+		local newFileName = oldPath:gsub(fileEnding, ending)
 		local status = LrFileUtils.exists(newFileName)
 		if (status == 'file') then
 			addDebugMessage('found corresponding jpeg: ' .. newFileName)
