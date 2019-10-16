@@ -136,6 +136,21 @@ local function getJpegSidecar(photo)
 	return nil
 end
 
+local function getNewJpegFile(photo)
+	local jpegSidecarName = getJpegSidecar(photo)
+	if jpegSidecarName == nil then
+		return nil
+	end
+
+	local newJpegFile = LrFileUtils.chooseUniqueFileName(jpegSidecarName)
+	local status = LrFileUtils.move(jpegSidecarName, newJpegFile)
+	if status then
+		return newJpegFile
+	end
+
+	return nil
+end
+
 local function deletePhoto(photo, catalog)
 	catalog:withWriteAccessDo("RejectPicture", function (context)
 		photo:setRawMetadata( 'pickStatus', -1)
@@ -144,12 +159,12 @@ local function deletePhoto(photo, catalog)
 end
 
 local function saveSpace(photo, catalog)
-	local jpegSidecarName = getJpegSidecar(photo)
 	local containingCollections = photo:getContainedCollections()
 	addDebugMessage('found ' .. #containingCollections .. ' collections containing ' .. getPhotoName(photo))
 
-	if (jpegSidecarName ~= nil) then
-		local additionSuccess = addPhoto(jpegSidecarName, catalog, containingCollections)
+	local jpegFilePath = getNewJpegFile(photo)
+	if (jpegFilePath ~= nil) then
+		local additionSuccess = addPhoto(jpegFilePath, catalog, containingCollections)
 		if additionSuccess then
 			--only delete stuff if we actually succeeded in adding the smaller version
 			deletePhoto(photo, catalog)
