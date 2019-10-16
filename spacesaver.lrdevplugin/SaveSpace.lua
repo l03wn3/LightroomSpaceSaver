@@ -22,6 +22,7 @@ local LrLogger = import 'LrLogger'
 local LrApplication = import 'LrApplication'
 local LrFileUtils = import 'LrFileUtils'
 local FileUtils = require 'FileUtils'
+local LrProgressScope = import 'LrProgressScope'
 
 -- Create the logger and enable the print function.
 local myLogger = LrLogger( 'exportLogger' )
@@ -40,6 +41,7 @@ DebugMessage = ''
 DebugMode = false
 local function addDebugMessage ( message )
 	DebugMessage = DebugMessage .. message .. ', '
+	myLogger:trace(message)
 end
 
 NumRawsRemoved = 0
@@ -191,13 +193,20 @@ local function startSpaceSaver()
 	local activeCatalog = LrApplication.activeCatalog()
 	local allVisiblePhotos = getVisiblePhotos(activeCatalog)
 
+	local progresScope = LrProgressScope({title = "Saving Space"})
+
+	progresScope:setPortionComplete(0, #allVisiblePhotos)
+	
 	for i, photo in ipairs(allVisiblePhotos) do
 		NumProcessedPhotos = NumProcessedPhotos + 1
 		if (shouldSaveSpace(photo)) then
 			addDebugMessage('saving space with photo: ' .. getPhotoName(photo))
 			saveSpace(photo, activeCatalog)
 		end
+		progresScope:setPortionComplete(i, #allVisiblePhotos)
 	end
+
+	progresScope:done()
 
 	OutputMessage = 'Went through ' .. NumProcessedPhotos .. ' photos and removed ' .. NumRawsRemoved .. ' raw files, saving ' .. getFormattedSavedSize() .. '.'
 	LrDialogs.message( "All done", OutputMessage, "info" )
