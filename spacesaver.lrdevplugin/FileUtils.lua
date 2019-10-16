@@ -24,4 +24,16 @@ function FileUtils.fileNameWithoutEnding(path)
     return res
 end
 
+function FileUtils.formatFileSize(size)
+    if size >= 10^9 then
+        return string.format("%.1fGB", size / 10^9)
+    elseif size >= 10^6 then
+        return string.format("%.1fMB", size / 10^6)
+    elseif size >= 10^3 then
+        return string.format("%.1fkB", size / 10^3)
+    else
+        return tostring(size) .. 'B'
+    end
+end
+
 return FileUtils
