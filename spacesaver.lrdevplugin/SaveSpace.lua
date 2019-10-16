@@ -33,6 +33,8 @@ local function outputToLog( message )
 	myLogger:trace( message )
 end
 
+SizeSaved = 0
+SizeJpegs = 0
 OutputMessage = ''
 DebugMessage = ''
 DebugMode = false
@@ -62,6 +64,10 @@ local function addPhoto(photoToAdd, catalog, containingCollections)
 			addDebugMessage('photo already exists in catalogue: ' .. photoToAdd)
 			newPhoto = photoExists
 		end
+
+		--account for total file of added jpegs
+		local fileSize = newPhoto:getRawMetadata('fileSize')
+		SizeJpegs = SizeJpegs + fileSize
 
 		--add the new smaller photo to any collections the
 		--large photos was present in
@@ -162,6 +168,9 @@ local function saveSpace(photo, catalog)
 	local containingCollections = photo:getContainedCollections()
 	addDebugMessage('found ' .. #containingCollections .. ' collections containing ' .. getPhotoName(photo))
 
+	local fileSize = photo:getRawMetadata('fileSize')
+	SizeSaved = SizeSaved + fileSize
+
 	local jpegFilePath = getNewJpegFile(photo)
 	if (jpegFilePath ~= nil) then
 		local additionSuccess = addPhoto(jpegFilePath, catalog, containingCollections)
@@ -170,6 +179,11 @@ local function saveSpace(photo, catalog)
 			deletePhoto(photo, catalog)
 		end
 	end
+end
+
+local function getFormattedSavedSize() 
+	local savedBytes = SizeSaved - SizeJpegs
+	return FileUtils.formatFileSize(savedBytes)
 end
 
 local function startSpaceSaver()
@@ -185,8 +199,10 @@ local function startSpaceSaver()
 		end
 	end
 
-	OutputMessage = 'Went through ' .. NumProcessedPhotos .. ' photos and removed ' .. NumRawsRemoved .. ' raw files.'
+	OutputMessage = 'Went through ' .. NumProcessedPhotos .. ' photos and removed ' .. NumRawsRemoved .. ' raw files, saving ' .. getFormattedSavedSize() .. '.'
 	LrDialogs.message( "All done", OutputMessage, "info" )
+
+	addDebugMessage('size jpegs: ' .. tostring(SizeJpegs) .. ', size raws: ' .. tostring(SizeSaved))
 
 	if DebugMode then
 		LrDialogs.message( "DebugMessages", DebugMessage, "info" )
