@@ -22,6 +22,7 @@ local LrLogger = import 'LrLogger'
 local LrApplication = import 'LrApplication'
 local LrFileUtils = import 'LrFileUtils'
 local FileUtils = require 'FileUtils'
+local LrProgressScope = import 'LrProgressScope'
 
 -- Create the logger and enable the print function.
 local myLogger = LrLogger( 'exportLogger' )
@@ -33,13 +34,14 @@ local function outputToLog( message )
 	myLogger:trace( message )
 end
 
-SizeSaved = 0
+SizeRaw = 0
 SizeJpegs = 0
 OutputMessage = ''
 DebugMessage = ''
 DebugMode = false
 local function addDebugMessage ( message )
 	DebugMessage = DebugMessage .. message .. ', '
+	myLogger:trace(message)
 end
 
 NumRawsRemoved = 0
@@ -169,7 +171,7 @@ local function saveSpace(photo, catalog)
 	addDebugMessage('found ' .. #containingCollections .. ' collections containing ' .. getPhotoName(photo))
 
 	local fileSize = photo:getRawMetadata('fileSize')
-	SizeSaved = SizeSaved + fileSize
+	SizeRaw = SizeRaw + fileSize
 
 	local jpegFilePath = getNewJpegFile(photo)
 	if (jpegFilePath ~= nil) then
@@ -182,7 +184,7 @@ local function saveSpace(photo, catalog)
 end
 
 local function getFormattedSavedSize() 
-	local savedBytes = SizeSaved - SizeJpegs
+	local savedBytes = SizeRaw - SizeJpegs
 	return FileUtils.formatFileSize(savedBytes)
 end
 
@@ -190,19 +192,23 @@ local function startSpaceSaver()
 	outputToLog( "MyHWExportItem.saveSpace function entered." )
 	local activeCatalog = LrApplication.activeCatalog()
 	local allVisiblePhotos = getVisiblePhotos(activeCatalog)
+	local progresScope = LrProgressScope({title = "Saving Space"})
 
+	progresScope:setPortionComplete(0, #allVisiblePhotos)
 	for i, photo in ipairs(allVisiblePhotos) do
 		NumProcessedPhotos = NumProcessedPhotos + 1
 		if (shouldSaveSpace(photo)) then
 			addDebugMessage('saving space with photo: ' .. getPhotoName(photo))
 			saveSpace(photo, activeCatalog)
 		end
+		progresScope:setPortionComplete(i, #allVisiblePhotos)
 	end
+	progresScope:done()
 
 	OutputMessage = 'Went through ' .. NumProcessedPhotos .. ' photos and removed ' .. NumRawsRemoved .. ' raw files, saving ' .. getFormattedSavedSize() .. '.'
 	LrDialogs.message( "All done", OutputMessage, "info" )
 
-	addDebugMessage('size jpegs: ' .. tostring(SizeJpegs) .. ', size raws: ' .. tostring(SizeSaved))
+	addDebugMessage('size jpegs: ' .. getFormattedSavedSize(SizeJpegs) .. ', size raws: ' .. getFormattedSavedSize(SizeRaw))
 
 	if DebugMode then
 		LrDialogs.message( "DebugMessages", DebugMessage, "info" )
