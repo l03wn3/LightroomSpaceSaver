@@ -128,8 +128,22 @@ local function shouldSaveSpace(photo)
 	return true
 end
 
-local function getJpegSidecar(photo)
-	local oldPath = photo:getRawMetadata( 'path' )
+local function getJpegVersionFromCatalogue(catalog, rawPhoto)
+	local oldPath = rawPhoto:getRawMetadata('path')
+	local fileEnding = "." .. FileUtils.getFileEnding(oldPath)
+
+	for i, ending in ipairs({'.JPG', '.jpg', '.jpeg', '.JPEG'}) do
+		local newFileName = oldPath:gsub(fileEnding, ending)
+		local photo = catalog:findPhotoByPath(newFileName, false)
+		if photo ~= nil then
+			return photo
+		end
+	end
+	return nil
+end
+
+local function getJpegSidecar(rawPhoto)
+	local oldPath = rawPhoto:getRawMetadata( 'path' )
 	local fileEnding = "." .. FileUtils.getFileEnding(oldPath)
 
 	for i, ending in ipairs({'.JPG', '.jpg', '.jpeg', '.JPEG'}) do
@@ -140,7 +154,7 @@ local function getJpegSidecar(photo)
 			return newFileName
 		end
 	end
-	addDebugMessage('found no corresponding jpeg for: ' .. getPhotoName(photo))
+	addDebugMessage('found no corresponding jpeg for: ' .. getPhotoName(rawPhoto))
 	return nil
 end
 
@@ -166,12 +180,26 @@ local function deletePhoto(photo, catalog)
 	NumRawsRemoved = NumRawsRemoved + 1
 end
 
+local function jpegVersionIsInCatalogue(catalog, rawPhoto)
+	local file = getJpegVersionFromCatalogue(catalog, rawPhoto)
+	if (file ~= nil) then
+		return true
+	end
+	return false
+end
+
 local function saveSpace(photo, catalog)
 	local containingCollections = photo:getContainedCollections()
 	addDebugMessage('found ' .. #containingCollections .. ' collections containing ' .. getPhotoName(photo))
 
 	local fileSize = photo:getRawMetadata('fileSize')
 	SizeRaw = SizeRaw + fileSize
+
+	if (jpegVersionIsInCatalogue(catalog, photo)) then
+		addDebugMessage('found Jpeg version of ' .. getPhotoName(photo) .. ' already in collection')
+		deletePhoto(photo, catalog)
+		return
+	end
 
 	local jpegFilePath = getNewJpegFile(photo)
 	if (jpegFilePath ~= nil) then
@@ -192,23 +220,23 @@ local function startSpaceSaver()
 	outputToLog( "MyHWExportItem.saveSpace function entered." )
 	local activeCatalog = LrApplication.activeCatalog()
 	local allVisiblePhotos = getVisiblePhotos(activeCatalog)
-	local progresScope = LrProgressScope({title = "Saving Space"})
+	local progressScope = LrProgressScope({ title = "Saving Space"})
 
-	progresScope:setPortionComplete(0, #allVisiblePhotos)
+	progressScope:setPortionComplete(0, #allVisiblePhotos)
 	for i, photo in ipairs(allVisiblePhotos) do
 		NumProcessedPhotos = NumProcessedPhotos + 1
 		if (shouldSaveSpace(photo)) then
 			addDebugMessage('saving space with photo: ' .. getPhotoName(photo))
 			saveSpace(photo, activeCatalog)
 		end
-		progresScope:setPortionComplete(i, #allVisiblePhotos)
+		progressScope:setPortionComplete(i, #allVisiblePhotos)
 	end
-	progresScope:done()
+	progressScope:done()
 
 	OutputMessage = 'Went through ' .. NumProcessedPhotos .. ' photos and removed ' .. NumRawsRemoved .. ' raw files, saving ' .. getFormattedSavedSize() .. '.'
 	LrDialogs.message( "All done", OutputMessage, "info" )
 
-	addDebugMessage('size jpegs: ' .. getFormattedSavedSize(SizeJpegs) .. ', size raws: ' .. getFormattedSavedSize(SizeRaw))
+	addDebugMessage('size jpegs: ' .. FileUtils.formatFileSize(SizeJpegs) .. ', size raws: ' .. FileUtils.formatFileSize(SizeRaw))
 
 	if DebugMode then
 		LrDialogs.message( "DebugMessages", DebugMessage, "info" )
