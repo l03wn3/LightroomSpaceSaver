@@ -34,17 +34,18 @@ local function outputToLog( message )
 	myLogger:trace( message )
 end
 
-SizeRaw = 0
-SizeJpegs = 0
+SizeRemoved = 0
+SizeAdded = 0
 OutputMessage = ''
 DebugMessage = ''
-DebugMode = false
+DebugMode = true
 local function addDebugMessage ( message )
 	DebugMessage = DebugMessage .. message .. ', '
 	myLogger:trace(message)
 end
 
 NumRawsRemoved = 0
+NumJPGsRemoved = 0
 NumProcessedPhotos = 0
 
 local function getPhotoName(photo)
@@ -69,7 +70,7 @@ local function addPhoto(photoToAdd, catalog, containingCollections)
 
 		--account for total file of added jpegs
 		local fileSize = newPhoto:getRawMetadata('fileSize')
-		SizeJpegs = SizeJpegs + fileSize
+		SizeAdded = SizeAdded + fileSize
 
 		--add the new smaller photo to any collections the
 		--large photos was present in
@@ -99,15 +100,40 @@ local function getVisiblePhotos(catalog)
 	return allVisiblePhotos
 end
 
-local function shouldSaveSpace(photo)
-	-- if photo is not raw, then keep
-	local fileType = photo:getRawMetadata( 'fileFormat' )
+local function getRawVersionFromCatalogue(photo, catalog)
+	local oldPath = photo:getRawMetadata('path')
+	local fileEnding = "." .. FileUtils.getFileEnding(oldPath)
 
-	if (fileType ~= 'RAW') then
-		addDebugMessage('not a raw file: ' .. getPhotoName(photo))
+	for i, ending in ipairs({'.RAF', '.NEF', '.NRW', '.CRW', '.CR2', '.CR3', '.GPR', 'RAW', '.RWL', '.DNG'}) do
+		local newFileName = oldPath:gsub(fileEnding, ending)
+		local newPhoto = catalog:findPhotoByPath(newFileName, false)
+		if newPhoto ~= nil then
+			return newPhoto
+		end
+	end
+	return nil
+end
+
+local function shouldSaveJPGSpace(photo, catalog)
+	local correspondingRawPhoto = getRawVersionFromCatalogue(photo, catalog)
+
+	--if there is no corresponding raw photo, keep Jpeg file
+	if correspondingRawPhoto == nil then
+		addDebugMessage('found no corresponding raw file for ' .. getPhotoName(photo))
 		return false
 	end
 
+	--otherwise check for the rating of the raw
+	local rating = correspondingRawPhoto:getFormattedMetadata( 'rating' )
+	if (rating ~= nil and rating >= 4) then
+		addDebugMessage('found high rated corresponding raw file: ' .. getPhotoName(correspondingRawPhoto))
+		return true
+	end
+
+	return false
+end
+
+local function shouldSaveRawSpace(photo)
 	--if rating is higher than four, then keep
 	local rating = photo:getFormattedMetadata( 'rating' )
 	if (rating ~= nil and rating >= 4) then
@@ -126,6 +152,18 @@ local function shouldSaveSpace(photo)
 
 	addDebugMessage('will save space with photo: ' .. getPhotoName(photo))
 	return true
+end
+
+local function shouldSaveSpace(photo, catalog)
+	local fileType = photo:getRawMetadata( 'fileFormat' )
+	if (fileType == 'RAW') then
+		return shouldSaveRawSpace(photo)
+	end
+
+	if (fileType == 'JPG') then
+		return shouldSaveJPGSpace(photo, catalog)
+	end
+	return false
 end
 
 local function getJpegVersionFromCatalogue(catalog, rawPhoto)
@@ -177,7 +215,15 @@ local function deletePhoto(photo, catalog)
 	catalog:withWriteAccessDo("RejectPicture", function (context)
 		photo:setRawMetadata( 'pickStatus', -1)
 	end)
-	NumRawsRemoved = NumRawsRemoved + 1
+
+	local fileSize = photo:getRawMetadata('fileSize')
+	SizeRemoved = SizeRemoved + fileSize
+
+	if photo:getRawMetadata( 'fileFormat' ) == 'RAW' then
+		NumRawsRemoved = NumRawsRemoved + 1
+	elseif photo:getRawMetadata ( 'fileFormat' ) == 'JPG' then
+		NumJPGsRemoved = NumJPGsRemoved + 1
+	end
 end
 
 local function jpegVersionIsInCatalogue(catalog, rawPhoto)
@@ -188,12 +234,13 @@ local function jpegVersionIsInCatalogue(catalog, rawPhoto)
 	return false
 end
 
-local function saveSpace(photo, catalog)
+local function saveJPGSpace(photo, catalog)
+	deletePhoto(photo, catalog)
+end
+
+local function saveRawSpace(photo, catalog)
 	local containingCollections = photo:getContainedCollections()
 	addDebugMessage('found ' .. #containingCollections .. ' collections containing ' .. getPhotoName(photo))
-
-	local fileSize = photo:getRawMetadata('fileSize')
-	SizeRaw = SizeRaw + fileSize
 
 	if (jpegVersionIsInCatalogue(catalog, photo)) then
 		addDebugMessage('found Jpeg version of ' .. getPhotoName(photo) .. ' already in collection')
@@ -211,8 +258,19 @@ local function saveSpace(photo, catalog)
 	end
 end
 
-local function getFormattedSavedSize() 
-	local savedBytes = SizeRaw - SizeJpegs
+local function saveSpace(photo, catalog)
+	local fileType = photo:getRawMetadata( 'fileFormat' )
+	if (fileType == 'RAW') then
+		return saveRawSpace(photo, catalog)
+	end
+
+	if (fileType == 'JPG') then
+		return saveJPGSpace(photo, catalog)
+	end
+end
+
+local function getFormattedSavedSize()
+	local savedBytes = SizeRemoved - SizeAdded
 	return FileUtils.formatFileSize(savedBytes)
 end
 
@@ -225,7 +283,7 @@ local function startSpaceSaver()
 	progressScope:setPortionComplete(0, #allVisiblePhotos)
 	for i, photo in ipairs(allVisiblePhotos) do
 		NumProcessedPhotos = NumProcessedPhotos + 1
-		if (shouldSaveSpace(photo)) then
+		if (shouldSaveSpace(photo, activeCatalog)) then
 			addDebugMessage('saving space with photo: ' .. getPhotoName(photo))
 			saveSpace(photo, activeCatalog)
 		end
@@ -233,10 +291,10 @@ local function startSpaceSaver()
 	end
 	progressScope:done()
 
-	OutputMessage = 'Went through ' .. NumProcessedPhotos .. ' photos and removed ' .. NumRawsRemoved .. ' raw files, saving ' .. getFormattedSavedSize() .. '.'
+	OutputMessage = 'Went through ' .. NumProcessedPhotos .. ' photos and removed ' .. NumRawsRemoved .. ' raw files and ' .. NumJPGsRemoved .. ' jpgs, saving ' .. getFormattedSavedSize() .. '.'
 	LrDialogs.message( "All done", OutputMessage, "info" )
 
-	addDebugMessage('size jpegs: ' .. FileUtils.formatFileSize(SizeJpegs) .. ', size raws: ' .. FileUtils.formatFileSize(SizeRaw))
+	addDebugMessage('size added: ' .. FileUtils.formatFileSize(SizeAdded) .. ', size raws: ' .. FileUtils.formatFileSize(SizeRemoved))
 
 	if DebugMode then
 		LrDialogs.message( "DebugMessages", DebugMessage, "info" )
