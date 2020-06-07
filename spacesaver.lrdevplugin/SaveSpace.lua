@@ -38,7 +38,7 @@ SizeRemoved = 0
 SizeAdded = 0
 OutputMessage = ''
 DebugMessage = ''
-DebugMode = true
+DebugMode = false
 local function addDebugMessage ( message )
 	DebugMessage = DebugMessage .. message .. ', '
 	myLogger:trace(message)
@@ -100,6 +100,32 @@ local function getVisiblePhotos(catalog)
 	return allVisiblePhotos
 end
 
+local function isPhotoRawFile(photo)
+	rawEndings = {'RAF', 'NEF', 'NRW', 'CRW', 'CR2', 'CR3', 'GPR', 'RAW', 'RWL', 'DNG'}
+	local fileType = photo:getRawMetadata( 'fileFormat' )
+
+	for _, ending in ipairs(rawEndings) do
+		if (fileType == ending) then
+			addDebugMessage('found raw file ' .. getPhotoName(photo))
+			return true
+		end
+	end
+
+	addDebugMessage('not a raw file ' .. getPhotoName(photo))
+	return false
+end
+
+local function isPhotoJPEG(photo)
+	local fileType = photo:getRawMetadata( 'fileFormat' )
+	jpegEndings = {'JPG', 'jpg', 'JPEG', 'jpeg'}
+	for _, ending in ipairs(jpegEndings) do
+		if (fileType == ending) then
+			addDebugMessage('found jpeg file ' .. getPhotoName(photo))
+			return true
+		end
+	end
+end
+
 local function getRawVersionFromCatalogue(photo, catalog)
 	local oldPath = photo:getRawMetadata('path')
 	local fileEnding = "." .. FileUtils.getFileEnding(oldPath)
@@ -155,14 +181,14 @@ local function shouldSaveRawSpace(photo)
 end
 
 local function shouldSaveSpace(photo, catalog)
-	local fileType = photo:getRawMetadata( 'fileFormat' )
-	if (fileType == 'RAW') then
+	if (isPhotoRawFile(photo)) then
 		return shouldSaveRawSpace(photo)
 	end
 
-	if (fileType == 'JPG') then
+	if (isPhotoJPEG(photo)) then
 		return shouldSaveJPGSpace(photo, catalog)
 	end
+
 	return false
 end
 
@@ -219,9 +245,9 @@ local function deletePhoto(photo, catalog)
 	local fileSize = photo:getRawMetadata('fileSize')
 	SizeRemoved = SizeRemoved + fileSize
 
-	if photo:getRawMetadata( 'fileFormat' ) == 'RAW' then
+	if isPhotoRawFile(photo) then
 		NumRawsRemoved = NumRawsRemoved + 1
-	elseif photo:getRawMetadata ( 'fileFormat' ) == 'JPG' then
+	elseif isPhotoJPEG(photo) then
 		NumJPGsRemoved = NumJPGsRemoved + 1
 	end
 end
@@ -259,12 +285,11 @@ local function saveRawSpace(photo, catalog)
 end
 
 local function saveSpace(photo, catalog)
-	local fileType = photo:getRawMetadata( 'fileFormat' )
-	if (fileType == 'RAW') then
+	if (isPhotoRawFile(photo)) then
 		return saveRawSpace(photo, catalog)
 	end
 
-	if (fileType == 'JPG') then
+	if (isPhotoJPEG(photo)) then
 		return saveJPGSpace(photo, catalog)
 	end
 end
@@ -281,6 +306,7 @@ local function startSpaceSaver()
 	local progressScope = LrProgressScope({ title = "Saving Space"})
 
 	progressScope:setPortionComplete(0, #allVisiblePhotos)
+
 	for i, photo in ipairs(allVisiblePhotos) do
 		NumProcessedPhotos = NumProcessedPhotos + 1
 		if (shouldSaveSpace(photo, activeCatalog)) then
