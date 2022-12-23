@@ -38,7 +38,7 @@ SizeRemoved = 0
 SizeAdded = 0
 OutputMessage = ''
 DebugMessage = ''
-DebugMode = false
+DebugMode = true
 local function addDebugMessage ( message )
 	DebugMessage = DebugMessage .. message .. ', '
 	myLogger:trace(message)
@@ -106,12 +106,12 @@ local function isPhotoRawFile(photo)
 
 	for _, ending in ipairs(rawEndings) do
 		if (fileType == ending) then
-			addDebugMessage('found raw file ' .. getPhotoName(photo))
+			addDebugMessage('found raw file: ' .. getPhotoName(photo))
 			return true
 		end
 	end
 
-	addDebugMessage('not a raw file ' .. getPhotoName(photo))
+	addDebugMessage('not a raw file: ' .. getPhotoName(photo))
 	return false
 end
 
@@ -120,11 +120,34 @@ local function isPhotoJPEG(photo)
 	jpegEndings = {'JPG', 'jpg', 'JPEG', 'jpeg'}
 	for _, ending in ipairs(jpegEndings) do
 		if (fileType == ending) then
-			addDebugMessage('found jpeg file ' .. getPhotoName(photo))
+			addDebugMessage('found jpeg file: ' .. getPhotoName(photo))
 			return true
 		end
 	end
 end
+
+local function isPhotoRejected(photo)
+	local pickStatus = photo:getRawMetadata('pickStatus')
+	local rejected = -1
+
+	if (pickStatus == rejected) then
+		return true
+	end
+
+	return false
+end
+
+local function isPhotoPicked(photo)
+	local pickStatus = photo:getRawMetadata('pickStatus')
+	local picked = 1
+
+	if (pickStatus == picked) then
+		return true
+	end
+
+	return false
+end
+
 
 local function getRawVersionFromCatalogue(photo, catalog)
 	local oldPath = photo:getRawMetadata('path')
@@ -140,6 +163,46 @@ local function getRawVersionFromCatalogue(photo, catalog)
 	return nil
 end
 
+local function getJpegVersionFromCatalogue(rawPhoto, catalog)
+	local oldPath = rawPhoto:getRawMetadata('path')
+	local fileEnding = "." .. FileUtils.getFileEnding(oldPath)
+
+	for i, ending in ipairs({'.JPG', '.jpg', '.jpeg', '.JPEG'}) do
+		local newFileName = oldPath:gsub(fileEnding, ending)
+		local photo = catalog:findPhotoByPath(newFileName, false)
+		if photo ~= nil then
+			return photo
+		end
+	end
+	return nil
+end
+
+local function getRatingOfPhoto(photo)
+	local rating = photo:getFormattedMetadata( 'rating' )
+	if (rating == nil) then
+		return -1
+	end
+
+	return rating
+end
+
+local function setRatingOfPhoto(photo, catalog, rating)
+	local processedRating = rating
+	if (rating == -1) then
+		processedRating = nil
+	end
+
+	catalog:withWriteAccessDo("RatePicture", function (context)
+		photo:setRawMetadata( 'rating', processedRating )
+	end)
+end
+
+local function setPhotoPicked(photo, catalog, picked)
+	catalog:withWriteAccessDo("RatePicture", function (context)
+		photo:setRawMetadata( 'pickStatus', picked )
+	end)
+end
+
 local function shouldSaveJPGSpace(photo, catalog)
 	local correspondingRawPhoto = getRawVersionFromCatalogue(photo, catalog)
 
@@ -149,17 +212,35 @@ local function shouldSaveJPGSpace(photo, catalog)
 		return false
 	end
 
+	--if this photo has high rating or is picked
+	local jpegRating = photo:getFormattedMetadata('rating')
+	if (jpegRating ~= nil and jpegRating >= 4) then
+		return false
+	end
+
+	if isPhotoPicked(photo) then
+		return false
+	end
+
 	--otherwise check for the rating of the raw
-	local rating = correspondingRawPhoto:getFormattedMetadata( 'rating' )
-	if (rating ~= nil and rating >= 4) then
+	local rawRating = correspondingRawPhoto:getFormattedMetadata( 'rating' )
+	if (rawRating ~= nil and rawRating >= 4) then
 		addDebugMessage('found high rated corresponding raw file: ' .. getPhotoName(correspondingRawPhoto))
 		return true
 	end
 
+--[[
+	-- remove jpeg if raw is rejected and jpeg is not marked as pick or 4+ stars
+	-- (if the latter is the case, we have already bailed)
+	if (isPhotoRejected(correspondingRawPhoto)) then
+		return true
+	end
+]]
+
 	return false
 end
 
-local function shouldSaveRawSpace(photo)
+local function shouldSaveRawSpace(photo, catalog)
 	--if rating is higher than four, then keep
 	local rating = photo:getFormattedMetadata( 'rating' )
 	if (rating ~= nil and rating >= 4) then
@@ -176,13 +257,27 @@ local function shouldSaveRawSpace(photo)
 		return false
 	end
 
+	local correspondingJpegPhoto = getJpegVersionFromCatalogue(photo, catalog)
+	if (correspondingJpegPhoto ~= nil) then
+		local jpegRating = getRatingOfPhoto(correspondingJpegPhoto)
+		local jpegPicked = isPhotoPicked(correspondingJpegPhoto)
+
+		if (jpegRating >= 4 or jpegPicked) then
+			setRatingOfPhoto(photo, catalog, jpegRating)
+			addDebugMessage("Setting corresponding rating of jpeg file to raw photo:" .. tostring(jpegRating))
+			setPhotoPicked(photo, catalog, jpegPicked)
+			addDebugMessage("Setting corresponding picked status")
+			return false
+		end
+	end
+
 	addDebugMessage('will save space with photo: ' .. getPhotoName(photo))
 	return true
 end
 
 local function shouldSaveSpace(photo, catalog)
 	if (isPhotoRawFile(photo)) then
-		return shouldSaveRawSpace(photo)
+		return shouldSaveRawSpace(photo, catalog)
 	end
 
 	if (isPhotoJPEG(photo)) then
@@ -190,20 +285,6 @@ local function shouldSaveSpace(photo, catalog)
 	end
 
 	return false
-end
-
-local function getJpegVersionFromCatalogue(catalog, rawPhoto)
-	local oldPath = rawPhoto:getRawMetadata('path')
-	local fileEnding = "." .. FileUtils.getFileEnding(oldPath)
-
-	for i, ending in ipairs({'.JPG', '.jpg', '.jpeg', '.JPEG'}) do
-		local newFileName = oldPath:gsub(fileEnding, ending)
-		local photo = catalog:findPhotoByPath(newFileName, false)
-		if photo ~= nil then
-			return photo
-		end
-	end
-	return nil
 end
 
 local function getJpegSidecar(rawPhoto)
@@ -252,8 +333,8 @@ local function deletePhoto(photo, catalog)
 	end
 end
 
-local function jpegVersionIsInCatalogue(catalog, rawPhoto)
-	local file = getJpegVersionFromCatalogue(catalog, rawPhoto)
+local function jpegVersionIsInCatalogue(rawPhoto, catalog)
+	local file = getJpegVersionFromCatalogue(rawPhoto, catalog)
 	if (file ~= nil) then
 		return true
 	end
@@ -268,7 +349,7 @@ local function saveRawSpace(photo, catalog)
 	local containingCollections = photo:getContainedCollections()
 	addDebugMessage('found ' .. #containingCollections .. ' collections containing ' .. getPhotoName(photo))
 
-	if (jpegVersionIsInCatalogue(catalog, photo)) then
+	if (jpegVersionIsInCatalogue(photo, catalog)) then
 		addDebugMessage('found Jpeg version of ' .. getPhotoName(photo) .. ' already in collection')
 		deletePhoto(photo, catalog)
 		return
