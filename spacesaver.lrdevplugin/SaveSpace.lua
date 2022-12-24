@@ -23,6 +23,7 @@ local LrApplication = import 'LrApplication'
 local LrFileUtils = import 'LrFileUtils'
 local FileUtils = require 'FileUtils'
 local LrProgressScope = import 'LrProgressScope'
+local LrExportSession = import 'LrExportSession'
 
 -- Create the logger and enable the print function.
 local myLogger = LrLogger( 'exportLogger' )
@@ -299,20 +300,68 @@ local function getJpegSidecar(rawPhoto)
 			return newFileName
 		end
 	end
-	addDebugMessage('found no corresponding jpeg for: ' .. getPhotoName(rawPhoto))
 	return nil
+end
+
+local function exportNewJpegFromRaw(rawPhoto)
+	local params = {}
+    params.LR_collisionHandling = 'rename'
+    params.LR_export_bitDepth = 16
+    params.LR_export_destinationType = "sourceFolder"
+    params.LR_export_useSubfolder = false
+    params.LR_extensionCase = "lowercase"
+    params.LR_format = "JPEG"
+    params.LR_initialSequenceNumber = 1
+    params.LR_jpeg_limitSize = 100
+    params.LR_jpeg_quality = 1
+    params.LR_jpeg_useLimitSize = false
+    params.LR_metadata_keywordOptions = "lightroomHierarchical"
+    params.LR_minimizeEmbeddedMetadata = false
+    params.LR_outputSharpeningLevel = 2
+    params.LR_outputSharpeningMedia = "screen"
+    params.LR_outputSharpeningOn = false
+    params.LR_reimportExportedPhoto = false
+    params.LR_reimport_stackWithOriginal = false
+    params.LR_reimport_stackWithOriginal_position = "below"
+    params.LR_renamingTokensOn = true
+    params.LR_size_doConstrain = false
+    params.LR_size_resolution = 240
+    params.LR_size_resolutionUnits = "inch"
+    params.LR_tokenCustomString = ""
+
+	local exportSession = LrExportSession{
+		exportSettings = params, 
+		photosToExport = { rawPhoto } ,
+	}
+
+	exportSession:doExportOnCurrentTask()
+
+	for i, rendition in exportSession:renditions() do
+		status, pathOrMessage = rendition:waitForRender()
+		addDebugMessage('status from render: ' .. tostring(status))
+		if status then 
+			addDebugMessage('path of render: ' .. rendition.destinationPath)
+			return rendition.destinationPath
+		end
+	end
 end
 
 local function getNewJpegFile(photo)
 	local jpegSidecarName = getJpegSidecar(photo)
-	if jpegSidecarName == nil then
-		return nil
+	if jpegSidecarName then
+		local newJpegFile = LrFileUtils.chooseUniqueFileName(jpegSidecarName)
+		local status = LrFileUtils.move(jpegSidecarName, newJpegFile)
+		if status then
+			return newJpegFile
+		end
 	end
+	addDebugMessage('found no corresponding jpeg sidecar for: ' .. getPhotoName(photo))
 
-	local newJpegFile = LrFileUtils.chooseUniqueFileName(jpegSidecarName)
-	local status = LrFileUtils.move(jpegSidecarName, newJpegFile)
-	if status then
-		return newJpegFile
+	addDebugMessage('will export jpeg from Raw instead.')
+	local jpegPhoto = exportNewJpegFromRaw(photo)
+	if (jpegPhoto) then
+		addDebugMessage('Created jpeg from Raw. New jpeg: ' .. jpegPhoto)
+		return jpegPhoto
 	end
 
 	return nil
@@ -357,8 +406,8 @@ local function saveRawSpace(photo, catalog)
 
 	local jpegFilePath = getNewJpegFile(photo)
 	if (jpegFilePath ~= nil) then
-		local additionSuccess = addPhoto(jpegFilePath, catalog, containingCollections)
-		if additionSuccess then
+		local additionStatus = addPhoto(jpegFilePath, catalog, containingCollections)
+		if additionStatus then
 			--only delete stuff if we actually succeeded in adding the smaller version
 			deletePhoto(photo, catalog)
 		end
