@@ -230,14 +230,11 @@ local function shouldSaveJPGSpace(photo, catalog)
 		return true
 	end
 
---[[
 	-- remove jpeg if raw is rejected and jpeg is not marked as pick or 4+ stars
 	-- (if the latter is the case, we have already bailed)
 	if (isPhotoRejected(correspondingRawPhoto)) then
 		return true
 	end
-]]
-
 	return false
 end
 
